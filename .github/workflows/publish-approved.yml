@@ -1,0 +1,51 @@
+name: Publish approved test installers
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Public prerelease tag (for example v0.6.1-test.1)'
+        required: true
+        type: string
+      confirm:
+        description: 'Type PUBLISH to publicly release the test installers'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    if: ${{ inputs.confirm == 'PUBLISH' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check private-source access token
+        env:
+          PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_SOURCE_READ_TOKEN }}
+        run: |
+          if [[ -z "$PRIVATE_REPO_TOKEN" ]]; then
+            echo "Missing PRIVATE_SOURCE_READ_TOKEN. Nothing will be published."
+            exit 1
+          fi
+      - name: Download approved private test builds
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_SOURCE_READ_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/intel-mac artifacts/windows
+          gh run download 43951061953 --repo timmerriman-droid/escape-into-studio --name escape-into-studio-mac-intel-UNTESTED-CATALINA --dir artifacts/intel-mac
+          gh run download 43952996974 --repo timmerriman-droid/escape-into-studio --name escape-into-studio-windows-x64-UNTESTED --dir artifacts/windows
+          find artifacts/intel-mac -name '*.dmg' -type f | grep -q .
+          find artifacts/windows -name '*.exe' -type f | grep -q .
+      - name: Publish public test prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          gh release create "$RELEASE_TAG" artifacts/intel-mac/*.dmg artifacts/windows/*.exe \
+            --repo "${GITHUB_REPOSITORY}" \
+            --title "Escape Into Studio $RELEASE_TAG (UNTESTED)" \
+            --prerelease \
+            --notes "Unverified test builds for Intel Mac and Windows. Intel Mac Catalina compatibility is not confirmed. These builds are not signed/notarized; operating-system warnings may appear. Apple Silicon will follow when its build is verified."
