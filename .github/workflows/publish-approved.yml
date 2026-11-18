@@ -7,6 +7,15 @@ on:
         description: 'Public prerelease tag (for example v0.6.1-test.1)'
         required: true
         type: string
+      intel_mac_run_id:
+        description: 'Approved successful Intel Mac build run ID; blank to omit'
+        required: false
+        type: string
+      include_windows:
+        description: 'Include old Windows test installer'
+        required: true
+        default: false
+        type: boolean
       confirm:
         description: 'Type PUBLISH to publicly release the test installers'
         required: true
@@ -28,24 +37,33 @@ jobs:
             echo "Missing PRIVATE_SOURCE_READ_TOKEN. Nothing will be published."
             exit 1
           fi
-      - name: Download approved private test builds
+      - name: Download selected approved builds
         env:
           GH_TOKEN: ${{ secrets.PRIVATE_SOURCE_READ_TOKEN }}
+          INTEL_RUN_ID: ${{ inputs.intel_mac_run_id }}
+          INCLUDE_WINDOWS: ${{ inputs.include_windows }}
         run: |
           set -euo pipefail
-          mkdir -p artifacts/intel-mac artifacts/windows
-          gh run download 43951061953 --repo timmerriman-droid/escape-into-studio --name escape-into-studio-mac-intel-UNTESTED-CATALINA --dir artifacts/intel-mac
-          gh run download 43952996974 --repo timmerriman-droid/escape-into-studio --name escape-into-studio-windows-x64-UNTESTED --dir artifacts/windows
-          find artifacts/intel-mac -name '*.dmg' -type f | grep -q .
-          find artifacts/windows -name '*.exe' -type f | grep -q .
+          mkdir -p artifacts
+          if [[ -n "$INTEL_RUN_ID" ]]; then
+            mkdir -p artifacts/intel-mac
+            gh run download "$INTEL_RUN_ID" --repo timmerriman-droid/escape-into-studio --name escape-into-studio-mac-intel-UNTESTED-CATALINA --dir artifacts/intel-mac
+            find artifacts/intel-mac -type f -name '*.dmg' | grep -q .
+          fi
+          if [[ "$INCLUDE_WINDOWS" == "true" ]]; then
+            mkdir -p artifacts/windows
+            gh run download 43952996974 --repo timmerriman-droid/escape-into-studio --name escape-into-studio-windows-x64-UNTESTED --dir artifacts/windows
+            find artifacts/windows -type f -name '*.exe' | grep -q .
+          fi
+          find artifacts -type f | grep -q .
       - name: Publish public test prerelease
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
           set -euo pipefail
-          gh release create "$RELEASE_TAG" artifacts/intel-mac/*.dmg artifacts/windows/*.exe \
+          gh release create "$RELEASE_TAG" $(find artifacts -type f \( -name '*.dmg' -o -name '*.exe' \) -print) \
             --repo "${GITHUB_REPOSITORY}" \
             --title "Escape Into Studio $RELEASE_TAG (UNTESTED)" \
             --prerelease \
-            --notes "Unverified test builds for Intel Mac and Windows. Intel Mac Catalina compatibility is not confirmed. These builds are not signed/notarized; operating-system warnings may appear. Apple Silicon will follow when its build is verified."
+            --notes "Unverified selected test builds. Intel Mac Catalina compatibility is not confirmed. These builds are not signed/notarized; operating-system warnings may appear. Apple Silicon will follow when its build is verified."
