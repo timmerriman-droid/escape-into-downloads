@@ -1,0 +1,60 @@
+name: Publish approved Catalina v0.6.1-test.2
+
+# One-time publication of the already successful and explicitly approved
+# Intel Catalina GitHub Actions build. No Windows artifacts are included.
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/publish-catalina-v061-test2.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  publish-catalina:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify private artifact access
+        env:
+          PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_SOURCE_READ_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "$PRIVATE_REPO_TOKEN" ]]; then
+            echo 'Missing PRIVATE_SOURCE_READ_TOKEN; nothing published.'
+            exit 1
+          fi
+
+      - name: Download approved Catalina build only
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_SOURCE_READ_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          gh run download 44265535090 \
+            --repo timmerriman-droid/escape-into-studio \
+            --name escape-into-studio-mac-intel-UNTESTED-CATALINA \
+            --dir artifacts
+          test "$(find artifacts -type f -name '*.dmg' | wc -l | tr -d ' ')" = "1"
+          test "$(find artifacts -type f | wc -l | tr -d ' ')" = "1"
+          ls -lh artifacts/*.dmg
+          shasum -a 256 artifacts/*.dmg
+
+      - name: Publish Catalina-only public prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag='v0.6.1-test.2'
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $tag already exists; refusing to overwrite it."
+            exit 1
+          fi
+          gh release create "$tag" artifacts/*.dmg \
+            --repo "$GITHUB_REPOSITORY" \
+            --title 'Escape Into Studio v0.6.1-test.2 (Intel Mac Catalina test)' \
+            --prerelease \
+            --notes 'Corrected Intel Mac test build from private run 44265535090. Bundled Python was changed to an older-macOS-compatible distribution following the _mkfifoat crash. macOS Catalina 10.15.7 runtime compatibility remains unverified until Harrison tests Discover 25 Landmarks. Installer is not notarized. No Windows installer included in this release.'
