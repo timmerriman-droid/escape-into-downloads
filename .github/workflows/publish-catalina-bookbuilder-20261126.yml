@@ -1,0 +1,55 @@
+name: Publish corrected Catalina Book Builder test DMG
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/publish-catalina-bookbuilder-20261126.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  publish-catalina:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify access to private successful build
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_SOURCE_READ_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$GH_TOKEN" || { echo 'PRIVATE_SOURCE_READ_TOKEN is missing'; exit 1; }
+          conclusion="$(gh run view 45875779564 --repo timmerriman-droid/escape-into-studio --json conclusion --jq '.conclusion')"
+          test "$conclusion" = success || { echo "Source run was not successful: $conclusion"; exit 1; }
+      - name: Download exact Catalina DMG from validated build
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_SOURCE_READ_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          gh run download 45875779564 \
+            --repo timmerriman-droid/escape-into-studio \
+            --name escape-into-studio-mac-intel-UNTESTED-CATALINA \
+            --dir artifacts
+          test "$(find artifacts -maxdepth 1 -type f -name '*.dmg' | wc -l | tr -d ' ')" = 1
+          test "$(find artifacts -maxdepth 1 -type f | wc -l | tr -d ' ')" = 1
+          ls -lh artifacts/*.dmg
+          sha256sum artifacts/*.dmg
+      - name: Publish downloadable public Catalina prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag='v0.6.1-catalina-bookbuilder-20261126'
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo 'Matching release already exists; refusing overwrite'
+            exit 1
+          fi
+          gh release create "$tag" artifacts/*.dmg \
+            --repo "$GITHUB_REPOSITORY" \
+            --title 'Escape Into Studio Catalina - Book Builder and Vector Export Test (26 Nov 2026)' \
+            --prerelease \
+            --notes 'Intel macOS Catalina 10.15.7 TEST BUILD from successful private run 45875779564. Includes Book Builder approval/status fix, SVG-first vector PDF book export, licence metadata review and AI-generated landmark reference option. Automated frozen-worker, NumPy, licensing, SVG and complete book export checks passed. Actual Catalina hardware and full API image generation flow have not been verified. Unsigned/unnotarized DMG; back up Documents/Escape Into Studio/Projects before replacing app. Does not include collaboration beta.'
